@@ -1,39 +1,45 @@
-# Hetzner Cloud Capacity Watcher (Ubuntu 22.04)
+# پایش موجودی و ساخت خودکار سرور Hetzner Cloud
 
-A lightweight Python (standard-library only) service that watches Hetzner Cloud capacity by **server type and location**, then optionally places a **limited number of server orders** when stock appears.
+این پروژه یک سرویس سبک با **پایتون و بدون نیاز به کتابخانه جانبی** است که موجودی سرورهای Hetzner Cloud را بر اساس **مدل سرور و لوکیشن** بررسی می‌کند و در صورت موجود شدن، می‌تواند تا سقف تعداد تعیین‌شده سرور بسازد.
 
-**Default image:** `ubuntu-22.04` (Ubuntu Server 22.04 LTS). **Default check interval:** 60 seconds. **Default purchase mode:** OFF (`AUTO_CREATE=false`).
+**تنظیمات پیش‌فرض:** سیستم‌عامل سرورهای جدید `ubuntu-22.04`، فاصله بررسی **۶۰ ثانیه** و **ساخت خودکار خاموش** (`AUTO_CREATE=false`) است.
 
-## Features
+> **تفاوت مهم:** اسکریپت `install.sh` فقط **سرویس پایش موجودی** را روی لینوکسِ میزبان نصب می‌کند. برای سرورهای خریداری‌شده، سیستم‌عامل Ubuntu 22.04 مستقیماً با گزینه `image=ubuntu-22.04` در API خود هتزنر انتخاب و نصب می‌شود؛ اسکریپت هیچ نصب جداگانه‌ای روی سرور جدید انجام نمی‌دهد.
 
-- Watches multiple `TYPE@LOCATION=COUNT` targets in one `.env` configuration.
-- Uses **`GET /v1/server_types` → `locations[].available`**, not the removed Data Centers availability endpoint.
-- Creates servers with `POST /v1/servers` using `server_type`, `location`, `image`, and optional pre-registered SSH keys.
-- Follows asynchronous Hetzner actions before marking a server as successfully provisioned.
-- Prevents accidental repeat orders using persistent completed/pending state and stable server names.
-- Caps the number of orders per check cycle and automatically backs off on HTTP 429.
-- Runs as an unprivileged `systemd` service, enabled on boot.
-- **Never deletes servers.** Reducing a count does not delete previously purchased servers.
+## امکانات
 
-## One-line install (Ubuntu / Debian with systemd)
+- پشتیبانی از چندین مدل و لوکیشن در یک فایل `.env`، با تعداد مستقل برای هر ترکیب.
+- بررسی موجودی از مسیر `GET /v1/server_types` و فیلد `locations[].available`.
+- ثبت سفارش از طریق `POST /v1/servers` با مشخص‌کردن مدل، لوکیشن، سیستم‌عامل و کلیدهای SSH اختیاری.
+- بررسی عملیات غیرهم‌زمان هتزنر قبل از ثبت نهایی سرور به‌عنوان ساخته‌شده.
+- جلوگیری از سفارش‌های تکراری با ذخیره وضعیت و نام‌گذاری ثابت سرورها.
+- محدودکردن تعداد سفارش‌های هر دور و افزایش خودکار فاصله در خطای HTTP 429.
+- اجرا به‌صورت سرویس `systemd` با دسترسی محدود و شروع خودکار پس از روشن‌شدن سرور.
+- **هیچ سروری را حذف نمی‌کند.** کاهش تعداد در تنظیمات، سرورهایی را که قبلاً ساخته شده‌اند حذف نمی‌کند.
 
-Review [`install.sh`](./install.sh) before running scripts with `sudo`:
+## نصب یک‌خطی روی Ubuntu یا Debian
+
+ابتدا محتوای [فایل نصب](./install.sh) را بررسی کنید. سپس روی **سیستم لینوکسی میزبان** (دارای `systemd`، پایتون ۳ و `curl`) اجرا کنید:
 
 ```bash
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/Cmd81/hetzner-auto-provisioner/main/install.sh)"
 ```
 
-The installer downloads `monitor.py` and `.env.example` from the same GitHub folder, sets up a restricted service account, writes the `systemd` unit, and starts the watcher after you provide a Hetzner Cloud token. The token is read without terminal echo, and is kept only in the root-owned config file (mode `0600`), **never in GitHub**.
+نصب‌کننده فایل‌های `monitor.py` و `.env.example` را از همین مخزن دریافت می‌کند، حساب کاربری محدود برای سرویس می‌سازد، واحد `systemd` را ثبت می‌کند و در صورت واردکردن توکن هتزنر، پایش را اجرا می‌کند.
 
-If you skip the token prompt, configure `/etc/hetzner-auto-provisioner.env` later and start the service manually.
+توکن هنگام واردکردن روی ترمینال نمایش داده نمی‌شود و فقط در فایل تنظیماتِ متعلق به `root` با سطح دسترسی `0600` نگهداری می‌شود؛ **توکن را در GitHub قرار ندهید.**
 
-## Configure
+اگر هنگام نصب توکن را وارد نکردید، می‌توانید بعداً فایل تنظیمات را ویرایش کنید و سرویس را اجرا کنید.
+
+## تنظیمات
+
+فایل تنظیمات سرویس:
 
 ```bash
 sudo nano /etc/hetzner-auto-provisioner.env
 ```
 
-Example:
+نمونه تنظیمات:
 
 ```dotenv
 HETZNER_API_TOKEN=YOUR_HETZNER_TOKEN
@@ -47,49 +53,84 @@ MAX_CREATES_PER_CYCLE=1
 STATE_FILE=/var/lib/hetzner-auto-provisioner/state.json
 ```
 
-### Meaning of `TARGETS`
+| متغیر | توضیح |
+| --- | --- |
+| `HETZNER_API_TOKEN` | توکن API پروژه هتزنر با دسترسی **Read & Write** |
+| `POLL_INTERVAL_SECONDS` | فاصله بین دورهای بررسی، برحسب ثانیه؛ پیشنهاد اولیه **۶۰** |
+| `SERVER_IMAGE` | سیستم‌عامل تمام سرورهای جدید؛ پیش‌فرض `ubuntu-22.04` |
+| `TARGETS` | فهرست مدل، لوکیشن و حداکثر تعداد هر مورد |
+| `NAME_PREFIX` | پیشوند ثابت نام سرورها؛ بدون دلیل تغییرش ندهید |
+| `SSH_KEYS` | نام یا شناسه کلیدهای SSH که **قبلاً** در پروژه هتزنر ثبت شده‌اند، جداشده با ویرگول؛ اختیاری |
+| `AUTO_CREATE` | با `false` فقط بررسی می‌کند؛ با `true` اجازه ساخت سرور **هزینه‌دار** می‌دهد |
+| `MAX_CREATES_PER_CYCLE` | سقف درخواست‌های ساخت در هر دور؛ پیش‌فرض **۱** |
+| `STATE_FILE` | محل ذخیره وضعیت سفارش‌های انجام‌شده و در انتظار |
 
-Each entry is `SERVER_TYPE@LOCATION=MAXIMUM_NUMBER`:
+### نحوه تنظیم مدل‌ها و لوکیشن‌ها
 
-| Entry | Meaning |
-|---|---|
-| `cx23@fsn1=1` | Provision up to **one CX23** in Falkenstein |
-| `cx23@nbg1=2` | Provision up to **two CX23** in Nuremberg |
-| `cpx22@hel1=1` | Provision up to **one CPX22** in Helsinki |
+ساختار هر مورد از `TARGETS` به این شکل است:
 
-Add or remove comma-separated entries freely; count must be 1–20 per entry. The script doesn't delete a server if you decrease count or remove the entry. `SERVER_IMAGE` applies to all targets; default is Ubuntu 22.04 LTS. `SSH_KEYS` is a comma-separated list of **existing** Hetzner project SSH key names or numeric IDs (recommended); if empty, Hetzner may deliver a temporary root password through its normal mechanisms.
+```text
+SERVER_TYPE@LOCATION=COUNT
+```
 
-**Costs:** Each successful server creation is billable according to your Hetzner account. `AUTO_CREATE=false` logs available stock without placing any order. Once you're ready, set `AUTO_CREATE=true` and restart the service. `MAX_CREATES_PER_CYCLE=1` is an additional safety cap; a higher quantity is requested over multiple polling rounds.
+| مقدار | نتیجه |
+| --- | --- |
+| `cx23@fsn1=1` | حداکثر **۱ سرور CX23** در فالکنشتاین |
+| `cx23@nbg1=2` | حداکثر **۲ سرور CX23** در نورنبرگ |
+| `cpx22@hel1=1` | حداکثر **۱ سرور CPX22** در هلسینکی |
 
-### Apply changes
+می‌توانید موارد را با ویرگول اضافه یا حذف کنید. مقدار تعداد برای هر مورد باید بین **۱ تا ۲۰** باشد. حذف یک مورد از تنظیمات یا کاهش تعداد، سرورهای قبلی را حذف نمی‌کند.
+
+گزینه `SERVER_IMAGE` برای همه موارد اعمال می‌شود. اگر `SSH_KEYS` خالی باشد، هتزنر ممکن است رمز موقت کاربر `root` را از طریق سازوکار معمول خودش ارائه دهد؛ استفاده از کلید SSH توصیه می‌شود.
+
+### هزینه و فعال‌کردن ساخت خودکار
+
+با مقدار پیش‌فرض `AUTO_CREATE=false` سیستم **فقط موجودی را بررسی و گزارش می‌کند** و سفارش ثبت نمی‌کند. زمانی که مدل‌ها، لوکیشن‌ها، تعداد و هزینه را بررسی کردید، مقدار را به `true` تغییر دهید:
+
+```dotenv
+AUTO_CREATE=true
+```
+
+هر ساخت موفق سرور، مطابق تعرفه حساب شما در Hetzner **هزینه دارد**. گزینه `MAX_CREATES_PER_CYCLE=1` یک محدودیت ایمنی اضافی است؛ اگر بیشتر از یک سرور بخواهید، سفارش‌ها در دورهای بعدی بررسی انجام می‌شوند.
+
+## مدیریت سرویس
+
+پس از تغییر فایل تنظیمات، سرویس را راه‌اندازی مجدد کنید:
 
 ```bash
 sudo systemctl restart hetzner-auto-provisioner
+```
+
+مشاهده وضعیت و گزارش زنده:
+
+```bash
 sudo systemctl status hetzner-auto-provisioner
 sudo journalctl -u hetzner-auto-provisioner -f
 ```
 
-Pause / resume:
+توقف و اجرای دوباره:
 
 ```bash
 sudo systemctl stop hetzner-auto-provisioner
 sudo systemctl start hetzner-auto-provisioner
 ```
 
-## Behavior and safeguards
+سرویس در زمان راه‌اندازی سیستم نیز به‌شکل خودکار فعال می‌شود.
 
-- A target is considered provisioned only when the create action returns success (or a previously-created managed server is found stable during recovery). `state.json` remembers successfully filled slots **even if you manually delete the servers**. This prevents repeat charges: the app is an *order-when-available tool*, not an auto-healing server fleet manager.
-- **To intentionally order again** after completed slots are filled: stop the service, clear the relevant names under `completed` in `/var/lib/hetzner-auto-provisioner/state.json` (or use a new unique `NAME_PREFIX`), then start the service. Verify existing server names first to avoid conflicts.
-- Editing `TARGETS` does not make the script delete, downsize, or migrate an existing server.
-- Server names are deterministic: `PREFIX-TYPE-LOCATION-NN` (e.g. `hcloud-auto-cx23-fsn1-01`), and creations get a `managed-by=hetzner-capacity-watcher` label.
-- Pending HTTP requests that fail/timeout are not automatically retried *in-place*. On the next poll, the script lists servers to reconcile first. Rare API propagation delays could still cause ambiguity; check Hetzner Console on any unexpected timeouts.
-- Hetzner can show `available=true` and later reject provisioning or fail the asynchronous action when supply is tight. The watcher keeps monitoring in that case. It cannot bypass account/order limits.
-- Rate limit defaults to **3,600 API requests/hour/project**, but other consumers of your token/project share the quota. A 60-second poll is generally conservative (a normal cycle uses server-types + servers list requests); 429 triggers cooldown based on headers.
-- Token must have **Read & Write** permissions; don't commit `.env`, email your token, or paste it into a public issue.
+## رفتار سیستم و نکات مهم
 
-## Manual use / testing
+1. سرور تنها بعد از موفقیت عملیات ساخت در هتزنر، ساخته‌شده محسوب می‌شود. وضعیت جایگاه‌های تکمیل‌شده در `state.json` ذخیره می‌شود و **حتی اگر سرور را دستی در هتزنر حذف کنید، همان جایگاه خودکار دوباره خریداری نمی‌شود**. این ابزار برای «خرید هنگام موجودشدن» است، نه جایگزینی دائمی سرورهای حذف‌شده.
+2. برای سفارش مجدد همان جایگاه، ابتدا سرویس را متوقف کنید؛ پس از بررسی نام سرورهای موجود، جایگاه‌های مربوط را از بخش `completed` در `/var/lib/hetzner-auto-provisioner/state.json` حذف کنید یا از `NAME_PREFIX` جدید و یکتا استفاده کنید، سپس سرویس را اجرا کنید. این کار ممکن است سفارش جدید و هزینه ایجاد کند.
+3. تغییر `TARGETS` باعث حذف، کوچک‌کردن یا انتقال سرورهای موجود نمی‌شود.
+4. قالب نام‌گذاری ثابت سرورها `PREFIX-TYPE-LOCATION-NN` است؛ مثلاً `hcloud-auto-cx23-fsn1-01`. برای سرورهای ایجادشده برچسب `managed-by=hetzner-capacity-watcher` ثبت می‌شود.
+5. در صورت ابهام ناشی از قطعی یا Timeout هنگام ساخت، برنامه در دور بعد ابتدا فهرست سرورها را بررسی می‌کند تا سفارش تکراری ثبت نکند. با این حال، در تأخیرهای انتشار وضعیت API امکان ابهام وجود دارد؛ موارد مشکوک را در پنل هتزنر بررسی کنید.
+6. `available=true` به معنی تضمین ساخت موفق نیست. حتی پس از پاسخ اولیه API ممکن است عملیات ساخت به دلیل محدودیت ظرفیت شکست بخورد. برنامه در این حالت به بررسی ادامه می‌دهد و محدودیت‌های حساب هتزنر را دور نمی‌زند.
+7. محدودیت پیش‌فرض API هتزنر **۳۶۰۰ درخواست در ساعت به‌ازای هر پروژه** است. استفاده‌های دیگر از API نیز از سهمیه مشترک مصرف می‌کنند. فاصله ۶۰ ثانیه برای شروع محافظه‌کارانه است؛ در خطای ۴۲۹، برنامه بر اساس هدرهای پاسخ عقب‌نشینی می‌کند.
+8. توکن API باید سطح دسترسی **Read & Write** داشته باشد. فایل `.env` یا توکن خود را در مخزن عمومی، تیکت یا پیام عمومی منتشر نکنید.
 
-On Linux with Python 3.9+:
+## اجرای دستی و تست
+
+برای لینوکس با **Python 3.9 یا جدیدتر**:
 
 ```bash
 cp .env.example .env
@@ -98,10 +139,16 @@ python3 monitor.py --once
 python3 -m unittest discover -s tests -v
 ```
 
-For a checkout-based installation: `sudo bash install.sh`. The installer preserves any existing `/etc/hetzner-auto-provisioner.env` on reinstallation. Re-run it to update the installed script from the GitHub folder.
+در صورت کلون‌کردن مخزن، نصب از روی فایل‌های محلی نیز امکان‌پذیر است:
 
-### Official references
+```bash
+sudo bash install.sh
+```
 
-- [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud)
-- [Hetzner API changelog — per-location availability](https://docs.hetzner.cloud/changelog)
-- [Hetzner FAQ: stock availability is not a guarantee](https://docs.hetzner.com/cloud/servers/faq/)
+نصب مجدد، تنظیمات فعلی `/etc/hetzner-auto-provisioner.env` را حفظ می‌کند. با اجرای دوباره نصب‌کننده، کد سرویس از فایل‌های همین مخزن به‌روزرسانی می‌شود.
+
+## منابع رسمی
+
+- [مستندات API هتزنر](https://docs.hetzner.cloud/reference/cloud)
+- [تغییرات API و اطلاعات موجودی لوکیشن‌ها](https://docs.hetzner.cloud/changelog)
+- [سؤالات متداول هتزنر درباره موجودی سرورها](https://docs.hetzner.com/cloud/servers/faq/)
